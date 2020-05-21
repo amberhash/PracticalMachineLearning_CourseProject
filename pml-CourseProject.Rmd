@@ -1,0 +1,92 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Lan Mu"
+date: "5/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+```
+
+## Introduction
+
+In this project, we aimed to use data from accelerometers on the belt, forearm, arm and dumbell to predict how well an activity was performed by the wearer. We used the best-performed predication model to predict 20 different test cases.
+
+## Data Cleaning
+```{r message=FALSE, warning=FALSE}
+pml_training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+pml_testing <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+Train<- read.csv(pml_training, header = T, na.strings = c("", "NA"))
+testing<- read.csv(pml_testing, header = T, na.strings = c("", "NA"))
+set.seed(12345)
+inTrain<-createDataPartition(Train$classe,p=0.7,list=FALSE)
+training<-Train[inTrain,]
+validation<-Train[-inTrain,]
+dim(training)
+```
+The pml-training dataset further splited to training and validation dataset. At this point, training dataset had 13737 observations with 160 variables. There were too many features in the training dataset, we removed the features with majority of missing values and those contained unnecessary information. 
+```{r}
+na_count <-sapply(training, function(y) sum(length(which(is.na(y)))))
+train_1<-training[,na_count/dim(training)<0.05]  #Include variables with less than 5% missing value
+vali_1<-validation[,na_count/dim(training)<0.05]
+train_2<-train_1[,-c(1:5)] #Remove unnecessary ID information
+vali_2<-vali_1[,-c(1:5)]
+```
+Additionally, We used PCA to recude the dimensionality of the dataset, while preserving as much statistical information as possible. We used PCA with principal component explaining 90% of the variance in the predicators.
+```{r}
+preproc<-preProcess(train_2[,-55], method = "pca", thresh = 0.9)
+train<- predict(preproc,train_2[,-55]) #PCA processed training data
+Vali<- predict(preproc,vali_2[,-55])  #PCA processed validation data
+dim(train)
+```
+Right now, training data had 13737 observations with 20 principle components.
+
+## Predication Model Building
+In this project, we trained our dataset with decision tree,random forest, gradient boosting machine, and selected the most optimal machine learning algorthim, based on the accuracy of predication on validation dataset.
+
+### 1)Random Forest:
+```{r}
+mod_rf<-train(x=train,y=train_2$classe,method="rf")
+pred_rf<-predict(mod_rf,Vali)
+rf_acc<-confusionMatrix(pred_rf,vali_2$classe)$overall["Accuracy"]
+```
+The random forest performed quite well, acheving `r rf_acc`  accuracy on predication of validation dataset. 
+
+### 2)Gradient Boosting Machine
+```{r message=FALSE,warning=FALSE}
+mod_gbm<-train(x=train,y=train_2$classe,method="gbm",verbose=FALSE)
+pred_gbm<-predict(mod_gbm,Vali)
+gbm_acc<-confusionMatrix(pred_gbm,vali_2$classe)$overall["Accuracy"]
+```
+GBM performed worse than random forest did, with only `r gbm_acc` accuracy.
+
+### 3)Decision Tree
+```{r}
+mod_dt<-train(x=train,y=train_2$classe,method="rpart")
+fancyRpartPlot(mod_dt$finalModel)
+pred_dt<-predict(mod_dt,Vali)
+dt_acc<-confusionMatrix(pred_dt,vali_2$classe)$overall["Accuracy"]
+```
+The accuracy from decision tree (`r dt_acc`) was much lower than that of Random forest and GBM. This was expected as decision tree is very likely to have overfitting problem.
+
+## Predication on Test data
+
+Comparing the accuracy of random forest, GBM and decision tree on validation data, we found that random forest outperformed among these three. Thus, we applied trained random forest to our test data in order to predict the quiz results. 
+```{r}
+test_1<-testing[,na_count/dim(training)<0.05]
+test_2<-test_1[,-c(1:5)]
+test<- predict(preproc,test_2[,-55])
+test<-rbind(Vali[1,],test)
+test<-test[-1,] #Used to resolve error: Type of predicators in new data do not match that of training data
+predict(mod_rf,test)
+```
+
+
